@@ -229,3 +229,7 @@ macOS 会从 `/Applications` 同目录下最早的 `Claude.backup-before-zh-CN-*
 本项目会修改本机 Claude Desktop 的本地资源文件，部分模式会修改 `Contents/Resources/app.asar` 并重新签名或改写完整性哈希。Claude Desktop 更新后资源结构可能变化，若补丁失败，请先恢复原样，再更新本项目或重新运行安装脚本。
 
 开启 macOS Claude Code Desktop 绕过权限确认补丁后，由工具调用、文件读写、命令执行、浏览器控制或其他自动化行为造成的结果，需要由使用者自行确认并承担风险。
+
+### 🚩 友情链接
+
+[![LinuxDo](https://img.shields.io/badge/社区-LinuxDo-blue?style=for-the-badge)](https://linux.do/)
