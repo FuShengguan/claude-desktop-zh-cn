@@ -52,6 +52,8 @@ ONLINE_LOCALE_MARKER = "__claudeZhOnlineLocale"
 ONLINE_LOCALE_MAIN_MARKER = "__claudeZhOnlineLocaleMain"
 ONLINE_LOCALE_LOCK_MARKER = "__claudeZhLocaleLock"
 MENU_RUNTIME_MARKER = "__claudeZhMenuRuntimePatch"
+BYPASS_PERMISSIONS_MARKER = "__claudeZhBypassPermissionsModePatch"
+BYPASS_TOOL_PERMISSION_MARKER = "__claudeZhBypassToolPermissionBrokerPatch"
 ONLINE_TRANSLATION_MAX_SOURCE_LEN = 1000
 STRUCTURAL_JS_STRING_REPLACEMENTS = {
     "hour",
@@ -931,6 +933,135 @@ def patch_custom3p_model_validation(app: Path) -> None:
     print("Patched custom 3P model-name validation in app.asar")
 
 
+def patch_bypass_permissions_mode_gate(app: Path) -> None:
+    path = app / APP_ASAR_REL
+    require_file(path)
+
+    data = path.read_bytes()
+    header_size, _header_string, header = read_asar_header(data, path)
+    entry = get_asar_file_entry(header, ASAR_PATCH_TARGET)
+    content_offset = 8 + header_size + int(entry["offset"])
+    content_size = int(entry["size"])
+    content_end = content_offset + content_size
+    if content_offset < 0 or content_end > len(data):
+        raise SystemExit(f"Unsupported app.asar file bounds for {ASAR_PATCH_TARGET}.")
+
+    text = data[content_offset:content_end].decode("utf-8")
+    patched = text
+
+    broker_strip_pattern = re.compile(
+        rf"(?:void [A-Za-z_$][A-Za-z0-9_$]*;)?"
+        r"if\(!0\)return\{behavior:\"allow\",updatedInput:[A-Za-z_$][A-Za-z0-9_$]*,"
+        r"updatedPermissions:[A-Za-z_$][A-Za-z0-9_$]*,"
+        r"decisionClassification:\"user_permanent\"\}\}?;?"
+        rf"/\*{re.escape(BYPASS_TOOL_PERMISSION_MARKER)}\*/"
+    )
+    patched, removed_broker_count = broker_strip_pattern.subn("", patched)
+
+    patched, default_count = re.subn(
+        r"bypassPermissionsModeEnabled:!1",
+        "bypassPermissionsModeEnabled:!0",
+        patched,
+    )
+
+    gate_pattern = re.compile(
+        r"function (?P<fn>[A-Za-z_$][A-Za-z0-9_$]*)\(\)"
+        r"\{const (?P<account>[A-Za-z_$][A-Za-z0-9_$]*)="
+        r"[A-Za-z_$][A-Za-z0-9_$]*\(\);"
+        r"if\((?P=account)===null\)return!1;"
+        r"const (?P<gate>[A-Za-z_$][A-Za-z0-9_$]*)="
+        r"[A-Za-z_$][A-Za-z0-9_$]*\(\"bypassPermissionsGateByAccount\"\);"
+        r"return!(?P=gate)\|\|Object\.keys\((?P=gate)\)\.length===0\?"
+        r"[A-Za-z_$][A-Za-z0-9_$]*\(\"bypassPermissionsModeEnabled\"\)===!0:"
+        r"(?P=gate)\[(?P=account)\]===!0\}"
+    )
+
+    def replace_gate(match: re.Match[str]) -> str:
+        return f"function {match.group('fn')}(){{return!0}}/*{BYPASS_PERMISSIONS_MARKER}*/"
+
+    patched, gate_count = gate_pattern.subn(replace_gate, patched, count=1)
+
+    remote_default_pattern = re.compile(
+        r"return (?P<mode>[A-Za-z_$][A-Za-z0-9_$]*)!==void 0&&"
+        r"(?P<set>[A-Za-z_$][A-Za-z0-9_$]*)\.has\((?P=mode)\)&&\("
+        r"[A-Za-z_$][A-Za-z0-9_$]*\.warn\(`\[SettingsResolver\] Ignoring defaultMode "
+        r"\"\$\{(?P=mode)\}\" from remote \$\{[A-Za-z_$][A-Za-z0-9_$]*\} "
+        r"— remote-read settings cannot default to auto/bypass`\),"
+        r"(?P<settings>[A-Za-z_$][A-Za-z0-9_$]*)\.permissions=\{\.\.\.(?P=settings)\.permissions,"
+        r"defaultMode:void 0\}\),(?P=settings)"
+    )
+    patched, remote_default_count = remote_default_pattern.subn(
+        lambda match: f"return {match.group('settings')}",
+        patched,
+        count=1,
+    )
+
+    def build_tool_permission_bypass(match: re.Match[str]) -> str:
+        args = match.group("args").split(",")
+        session = match.group("session")
+        input_arg = args[2]
+        permissions_arg = args[3]
+        return (
+            match.group(0)
+            + "if(!0)"
+            + f'return{{behavior:"allow",updatedInput:{input_arg},updatedPermissions:{permissions_arg},'
+            + 'decisionClassification:"user_permanent"};'
+            + f"/*{BYPASS_TOOL_PERMISSION_MARKER}*/"
+        )
+
+    cowork_permission_pattern = re.compile(
+        r"async handleToolPermission\("
+        r"(?P<args>[A-Za-z_$][A-Za-z0-9_$]*(?:,[A-Za-z_$][A-Za-z0-9_$]*){6})"
+        r"\)\{const (?P<session>[A-Za-z_$][A-Za-z0-9_$]*)="
+        r"this\.sessions\.get\([A-Za-z_$][A-Za-z0-9_$]*\),"
+        r"\{telemetryToolName:[^{};]+,decisionReason:[^{};]+\}="
+        r"[A-Za-z_$][A-Za-z0-9_$]*\?\?\{\};"
+    )
+    patched, cowork_broker_count = cowork_permission_pattern.subn(
+        build_tool_permission_bypass,
+        patched,
+        count=1,
+    )
+
+    ccd_permission_pattern = re.compile(
+        r"async handleToolPermission\("
+        r"(?P<args>[A-Za-z_$][A-Za-z0-9_$]*(?:,[A-Za-z_$][A-Za-z0-9_$]*){5})"
+        r"\)\{const (?P<session>[A-Za-z_$][A-Za-z0-9_$]*)="
+        r"this\.config\.getSession\([A-Za-z_$][A-Za-z0-9_$]*\),"
+        r"[A-Za-z_$][A-Za-z0-9_$]*=.*?,[A-Za-z_$][A-Za-z0-9_$]*="
+        r"[A-Za-z_$][A-Za-z0-9_$]*\(\)\.has\([A-Za-z_$][A-Za-z0-9_$]*\);"
+    )
+    patched, ccd_broker_count = ccd_permission_pattern.subn(
+        build_tool_permission_bypass,
+        patched,
+        count=1,
+    )
+
+    already_patched = BYPASS_PERMISSIONS_MARKER in text
+    if gate_count == 0 and not already_patched:
+        raise SystemExit("Could not patch bypass permissions gate. Claude bundle format may have changed.")
+
+    if remote_default_count == 0 and "remote-read settings cannot default to auto/bypass" in text:
+        print("Warning: could not patch remote defaultMode filter; Claude bundle format may have changed.")
+
+    broker_already_patched = BYPASS_TOOL_PERMISSION_MARKER in text
+    if (cowork_broker_count == 0 or ccd_broker_count == 0) and not broker_already_patched:
+        print("Warning: could not patch all tool permission broker paths; Claude bundle format may have changed.")
+
+    if patched == text:
+        print("Bypass permissions mode gate already patched")
+        return
+
+    replace_asar_file_content(app, ASAR_PATCH_TARGET, patched.encode("utf-8"))
+    print(
+        "Patched bypass permissions mode gate in app.asar: "
+        f"default flag {default_count}, runtime gate {gate_count}, "
+        f"remote defaultMode filter {remote_default_count}, "
+        f"tool permission brokers {cowork_broker_count + ccd_broker_count}, "
+        f"removed stale broker patches {removed_broker_count}"
+    )
+
+
 def pad_utf8_replacement(source: str, target: str) -> str:
     source_len = len(source.encode("utf-8"))
     target_len = len(target.encode("utf-8"))
@@ -1721,6 +1852,24 @@ def set_user_locale(user_home: Path, lang_code: str) -> None:
     print(f"Set Claude config locale: {config}")
 
 
+def set_user_bypass_permissions_default(user_home: Path, dry_run: bool = False) -> None:
+    settings = user_home / ".claude/settings.json"
+    data = load_json_object_or_backup(settings, dry_run=dry_run)
+    permissions = data.get("permissions")
+    if not isinstance(permissions, dict):
+        permissions = {}
+    permissions["defaultMode"] = "bypassPermissions"
+    data["permissions"] = permissions
+
+    if dry_run:
+        print(f"[dry-run] Would set Claude Code permissions.defaultMode=bypassPermissions: {settings}")
+        return
+
+    save_json(settings, data)
+    chown_to_sudo_user(settings)
+    print(f"Set Claude Code default permission mode: {settings}")
+
+
 def chown_to_sudo_user(path: Path) -> None:
     sudo_uid = os.environ.get("SUDO_UID")
     sudo_gid = os.environ.get("SUDO_GID")
@@ -2212,6 +2361,11 @@ def main() -> int:
     )
     parser.add_argument("--skip-asar-patch", action="store_true", help="Skip app.asar and binary integrity patches (safe mode)")
     parser.add_argument(
+        "--enable-bypass-permissions-mode",
+        action="store_true",
+        help="Patch Claude Code Desktop so bypassPermissions can be selected and used as the default permission mode",
+    )
+    parser.add_argument(
         "--set-auto-updates",
         choices=["enabled", "disabled"],
         help="Only update Claude Desktop auto-update setting, then exit",
@@ -2298,6 +2452,9 @@ def main() -> int:
     config = get_language_config(lang_code)
     label = config["label"]
 
+    if args.skip_asar_patch and args.enable_bypass_permissions_mode:
+        raise SystemExit("--enable-bypass-permissions-mode cannot be combined with --skip-asar-patch.")
+
     require_file(config["frontend_translation"])
     require_file(config["frontend_hardcoded"])
     require_file(config["desktop_translation"])
@@ -2331,6 +2488,8 @@ def main() -> int:
         print("Skipping 3P model validation patch (--skip-asar-patch)")
     else:
         patch_custom3p_model_validation(patched_app)
+    if args.enable_bypass_permissions_mode:
+        patch_bypass_permissions_mode_gate(patched_app)
     merge_frontend_locale(patched_app, lang_code)
     install_desktop_locale(patched_app, lang_code)
     install_statsig_locale(patched_app, lang_code)
@@ -2338,8 +2497,12 @@ def main() -> int:
     clear_quarantine(patched_app)
     if args.dry_run:
         print(f"[dry-run] Would set Claude config locale under: {args.user_home}")
+        if args.enable_bypass_permissions_mode:
+            set_user_bypass_permissions_default(args.user_home, dry_run=True)
     else:
         set_user_locale(args.user_home, lang_code)
+        if args.enable_bypass_permissions_mode:
+            set_user_bypass_permissions_default(args.user_home, dry_run=False)
     verify(patched_app, lang_code)
 
     backup = backup_and_replace(args.app, patched_app, args.dry_run)

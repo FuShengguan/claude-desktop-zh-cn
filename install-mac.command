@@ -58,6 +58,7 @@ echo
 
 ACTION="${CLAUDE_ACTION:-}"
 SKIP_ASAR_PATCH="${CLAUDE_SKIP_ASAR_PATCH:-0}"
+ENABLE_BYPASS_PERMISSIONS_PATCH="${CLAUDE_ENABLE_BYPASS_PERMISSIONS_PATCH:-0}"
 if [ -z "$ACTION" ]; then
   echo "请选择操作："
   echo "  [1] 安装中文补丁(官方订阅与第三方api均可使用：Cowork 沙箱/工作区不可用看群公告)"
@@ -137,10 +138,35 @@ case "$SKIP_ASAR_PATCH" in
   1|true|TRUE|yes|YES|y|Y) SKIP_ASAR_ARG="--skip-asar-patch" ;;
 esac
 
+BYPASS_PERMISSIONS_ARG=""
+if [ "$ACTION" = "install" ] && [ -z "${CLAUDE_ENABLE_BYPASS_PERMISSIONS_PATCH+x}" ] && [ -z "$SKIP_ASAR_ARG" ]; then
+  echo "是否开启 Claude Code 绕过权限补丁？"
+  echo "开启后会允许桌面端使用 permissions.defaultMode=bypassPermissions，并减少工具调用确认弹窗。仅建议在受信任/隔离环境中使用。"
+  read -rp "请输入选项 [y/N，默认 N]: " bypass_choice
+  case "$bypass_choice" in
+    y|Y|yes|YES) ENABLE_BYPASS_PERMISSIONS_PATCH="1" ;;
+    *) ENABLE_BYPASS_PERMISSIONS_PATCH="0" ;;
+  esac
+  echo
+fi
+
+case "$ENABLE_BYPASS_PERMISSIONS_PATCH" in
+  1|true|TRUE|yes|YES|y|Y)
+    if [ -n "$SKIP_ASAR_ARG" ]; then
+      echo "绕过权限补丁需要结构性 app.asar 修改，不能与安全模式同时使用。"
+      exit 1
+    fi
+    BYPASS_PERMISSIONS_ARG="--enable-bypass-permissions-mode"
+    ;;
+esac
+
 if [ "$ACTION" = "install" ]; then
   echo "选择的语言: $LANG_CODE"
   if [ -n "$SKIP_ASAR_ARG" ]; then
     echo "安全模式: 跳过结构性 app.asar 补丁，仅应用等长菜单汉化补丁"
+  fi
+  if [ -n "$BYPASS_PERMISSIONS_ARG" ]; then
+    echo "绕过权限补丁: 开启"
   fi
   echo
 fi
@@ -164,7 +190,7 @@ if [ "$(id -u)" -ne 0 ] && [ "$NEEDS_SUDO" -eq 1 ]; then
   elif [ "$ACTION" = "enable-updates" ]; then
     sudo "$PYTHON" "$PATCHER" --user-home "$HOME" --set-auto-updates enabled "$@"
   else
-    sudo "$PYTHON" "$PATCHER" --user-home "$HOME" --lang "$LANG_CODE" --launch ${SKIP_ASAR_ARG:+"$SKIP_ASAR_ARG"} "$@"
+    sudo "$PYTHON" "$PATCHER" --user-home "$HOME" --lang "$LANG_CODE" --launch ${SKIP_ASAR_ARG:+"$SKIP_ASAR_ARG"} ${BYPASS_PERMISSIONS_ARG:+"$BYPASS_PERMISSIONS_ARG"} "$@"
   fi
   STATUS=$?
   echo
@@ -192,7 +218,7 @@ elif [ "$ACTION" = "sync-skills" ]; then
 elif [ "$ACTION" = "unsync-skills" ]; then
   "$PYTHON" "$PATCHER" --user-home "$USER_HOME" --unsync-cc-switch-skills "$@"
 else
-  "$PYTHON" "$PATCHER" --user-home "$USER_HOME" --lang "$LANG_CODE" --launch ${SKIP_ASAR_ARG:+"$SKIP_ASAR_ARG"} "$@"
+  "$PYTHON" "$PATCHER" --user-home "$USER_HOME" --lang "$LANG_CODE" --launch ${SKIP_ASAR_ARG:+"$SKIP_ASAR_ARG"} ${BYPASS_PERMISSIONS_ARG:+"$BYPASS_PERMISSIONS_ARG"} "$@"
 fi
 
 echo

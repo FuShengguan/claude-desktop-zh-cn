@@ -6,6 +6,16 @@ macOS 可双击 `install-mac.command`，Windows 可右键管理员运行 `instal
 
 本汉化方案支持使用 API 和官方订阅的方式。第三方api请先参照 https://linux.do/t/topic/2032192 配置。
 
+## Fork 与来源说明
+
+本仓库基于原项目 [javaht/claude-desktop-zh-cn](https://github.com/javaht/claude-desktop-zh-cn) 修改，保留原项目历史和作者来源信息。
+
+本 fork 额外新增了 macOS Claude Code Desktop 绕过权限确认补丁：安装时可选择打开桌面端 `bypassPermissions` gate，保留开发/远程模式读取到的 `permissions.defaultMode`，跳过桌面端工具权限 broker，并写入 `~/.claude/settings.json` 的 `permissions.defaultMode = "bypassPermissions"`。
+
+该补丁会修改本机 Claude Desktop 的 `Contents/Resources/app.asar`，会减少工具调用确认弹窗，也会降低权限确认带来的保护。请仅在你完全信任的本机、测试机或隔离环境中使用，不建议在生产环境、公司受管设备、陌生项目或高风险目录中开启。
+
+本项目及本 fork 均为非官方社区补丁，不属于 Anthropic 或 Claude 官方项目，也不代表 Anthropic 的认可、支持或担保。
+
 
 **遇到问题请及时反馈，欢迎扫码加入 claude desktop 交流。**
 
@@ -49,7 +59,7 @@ macOS 可双击 `install-mac.command`，Windows 可右键管理员运行 `instal
 2. 下载或克隆本项目。
 3. 双击 `install-mac.command`，选择安装中文补丁、安全模式安装或恢复原样 / 卸载补丁。
 4. 选择安装中文补丁时，脚本会先尝试恢复旧备份来清理已有汉化；如果没有旧备份，会提示跳过并继续。
-5. 安装时选择要安装的语言（1=简体中文，2=繁体中文（中国台湾），3=繁体中文（中国香港））。安全模式同样支持三种中文，并跳过结构性 `app.asar` 补丁；仅保留等长菜单汉化补丁。
+5. 安装时选择要安装的语言（1=简体中文，2=繁体中文（中国台湾），3=繁体中文（中国香港））。安全模式同样支持三种中文，并跳过结构性 `app.asar` 补丁；仅保留等长菜单汉化补丁。普通模式会额外询问是否开启 Claude Code 绕过权限补丁。
 6. 按提示输入 Mac 登录密码。
 7. Claude 会自动重新打开。
 8. 如果没有自动切换，打开左下角账号菜单，选择 `Language` -> 对应的中文选项。
@@ -101,6 +111,7 @@ macOS 可双击 `install-mac.command`，Windows 可右键管理员运行 `instal
 - 对 `Contents/Resources/app.asar` 做等长补丁，关闭 3P gateway 启动阶段的 `inferenceModels` Anthropic 名称校验；安全模式会跳过这一步。
 - 安全模式仍会对主进程菜单中的硬编码英文做等长汉化补丁，覆盖开发者菜单等少量不走资源文件的菜单项。
 - 普通安装模式会在在线账号登录 / 聊天页面注入显示层 DOM 翻译，覆盖聊天、项目、Artifacts 等远程页面；安全模式会跳过此项，因为它需要修改 `app.asar`。
+- 可选开启 Claude Code 绕过权限补丁：脚本会打开桌面端 `bypassPermissions` gate，保留开发/远程模式读取到的 `permissions.defaultMode`，跳过桌面端工具权限 broker，并写入 `~/.claude/settings.json` 的 `permissions.defaultMode = "bypassPermissions"`。该模式会减少工具调用确认弹窗，也会放大误操作风险；只建议在受信任或隔离环境中使用。可通过环境变量 `CLAUDE_ENABLE_BYPASS_PERMISSIONS_PATCH=1` 启用。
 - 合并当前 Claude 版本的 `en-US.json` 和随包中文翻译：
   当前版本已有中文翻译的 key 会变中文，新版本新增但本包没有的 key 会保留英文，避免应用缺字段。
 - 写入 `~/Library/Application Support/Claude/config.json`，设置 `"locale"` 为所选语言代码（`zh-CN`、`zh-TW` 或 `zh-HK`），并在 `claude.ai` 页面加载前同步其前端语言状态。
@@ -137,4 +148,8 @@ macOS 可双击 `install-mac.command`，Windows 可右键管理员运行 `instal
 
 ## 免责声明
 
-本项目为非官方中文补丁，仅修改本机 Claude Desktop 的本地资源文件。Claude Desktop 更新后资源结构可能变化，若补丁失败，请先更新本项目或重新运行安装脚本。
+本项目为非官方社区补丁，不属于 Anthropic 或 Claude 官方项目，也不代表 Anthropic 的认可、支持或担保。
+
+本项目会修改本机 Claude Desktop 的本地资源文件，部分模式会修改 `Contents/Resources/app.asar` 并重新签名本机应用。Claude Desktop 更新后资源结构可能变化，若补丁失败，请先更新本项目或重新运行安装脚本。
+
+macOS Claude Code Desktop 绕过权限确认补丁会降低工具调用前的人工确认保护，仅适合受信任或隔离环境。开启该补丁后，由工具调用、文件读写、命令执行、浏览器控制或其他自动化行为造成的结果，需要由使用者自行确认并承担风险。
