@@ -71,6 +71,7 @@ CLAUDE_ENABLE_BYPASS_PERMISSIONS_PATCH=1 ./install-mac.command
 
 - 该补丁不能与 macOS 安全模式同时使用，因为它需要结构性修改 `app.asar`。
 - 该补丁会降低工具调用确认保护，只建议在受信任或隔离环境中使用。
+- Windows 版本当前没有实现绕过权限确认补丁。Windows 如需支持，需要单独适配 `resources/app.asar`、同步更新 `Claude.exe` 内嵌完整性哈希，并额外验证 Windows Claude Desktop 的 bundle 结构；同时会进一步影响签名和 Cowork / 沙箱兼容性，因此本 fork 暂未提供 Windows 绕过权限开关。
 
 ### 备份、恢复与安全处理
 
@@ -160,6 +161,8 @@ CLAUDE_ENABLE_BYPASS_PERMISSIONS_PATCH=1 ./install-mac.command
 7. 脚本会备份当前 Claude Desktop 资源，写入中文资源，补齐硬编码界面文本，并重启 Claude Desktop。
 8. 如果没有自动切换，打开左下角账号菜单，选择 `Language` -> 对应中文选项。
 
+> 注意：Windows 版本当前不支持开启 Claude Code Desktop 绕过权限确认补丁。该功能目前仅在 macOS 普通模式中提供。
+
 ## 文件说明
 
 - `install-mac.command`：macOS 双击运行入口。
@@ -216,6 +219,7 @@ macOS 会从 `/Applications` 同目录下最早的 `Claude.backup-before-zh-CN-*
 - 修改 `app.asar` 的模式会增加对 Claude Desktop 内部 bundle 结构的依赖；Claude Desktop 更新后如果结构变化，补丁可能需要更新。
 - Windows 模式 2 会破坏 Authenticode 签名，可能导致 Cowork VM 服务拒绝客户端并报 `RPC pipe closed`。
 - 绕过权限确认补丁会减少工具调用前的人工确认，请只在你明确理解风险的环境中开启。
+- 绕过权限确认补丁当前仅支持 macOS；Windows 版本暂未实现该功能。
 - 如果安装失败，优先运行恢复 / 卸载，再更新本项目后重新安装。
 
 ## 免责声明
